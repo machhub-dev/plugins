@@ -33,7 +33,8 @@ If the proxy is down or the user is logged out, the script fails - there is no o
 import { SDK } from '@machhub-dev/sdk-ts';
 
 const sdk = new SDK();
-if (!(await sdk.Initialize({ application_id: '<your-app>' }))) {
+// No config: the proxy supplies credentials and the domain the Designer is connected to.
+if (!(await sdk.Initialize())) {
   console.error('SDK init failed - is the extension proxy on :61888 up and are you logged in?');
   process.exit(1);
 }
@@ -41,8 +42,8 @@ if (!(await sdk.Initialize({ application_id: '<your-app>' }))) {
 // READ (paginate; getAll returns one page)
 const items = await sdk.collection('items').limit(1000).offset(0).getAll();
 
-// WRITE (partial update; id = "Table:ID")
-await sdk.collection('items').update('<app>.items:04-110027-002', {
+// WRITE (partial update; pass the id the record came back with)
+await sdk.collection('items').update(items[0].id, {
   requiresSerialNumber: true,
   updated_dt: new Date().toISOString()
 });
@@ -53,7 +54,7 @@ Run: `node scripts/<task>/run.mjs`
 ## Conventions & gotchas
 
 - **`MQTT connection error: Bad User Name or Password` on init is BENIGN.** It only affects real-time subscriptions. HTTP reads/writes still work - do not treat it as a failure.
-- **Record id format is `Table:ID`**, e.g. `<app>.items:<itemCode>`. From a fetched record: `` `${rec.id.Table}:${rec.id.ID}` ``.
+- **Record id format is `Table:ID`**, e.g. `<domain>.items:<itemCode>`. Take ids from fetched records (`rec.id`, or `` `${rec.id.Table}:${rec.id.ID}` `` as a string). Don't write the domain into the script, as a `MACHHUB_APP_ID` default or an `application_id`: the script should run against whichever domain the Designer is connected to.
 - **`getAll()` returns a single page** - loop `offset += limit` until a batch is shorter than the page size. Use `limit(1000)`.
 - **`update(id, partial)` accepts a partial** - only send changed fields (plus `updated_dt`). Avoid sending `created_dt` on updates.
 - **Always dry-run first.** Default the script to no-writes; gate mutations behind an `--apply` flag. Print a diff/summary (will-change / unchanged / skipped counts) before writing, then re-run with `--apply`.
