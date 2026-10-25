@@ -8,7 +8,7 @@ metadata:
 
 ## How MACHHUB auth works
 
-- `sdk.auth.login(username, password)` posts to MACHHUB and **stores the JWT itself**: in `localStorage` under `x-machhub-auth-tkn-<appId>` in the browser, and in memory in Node.
+- `sdk.auth.login(username, password)` posts to MACHHUB and **stores the JWT itself**: in `localStorage` under `x-machhub-auth-tkn-<appId>` in the browser (just `x-machhub-auth-tkn` in local dev, where the app ID comes from the Designer proxy), and in memory in Node.
 - Every SDK request then carries `Authorization: Bearer <token>` automatically.
 - `sdk.auth.logout()` deletes the stored token. Nothing is sent to the server.
 
@@ -86,7 +86,13 @@ export const currentUser = () => user;
 ## Login form essentials
 
 - Use `autocomplete="username"` and `autocomplete="current-password"` so password managers work.
-- Show the error message from the thrown `Error`, and keep the typed username.
+- Show the error message from the thrown `Error`, and keep the typed username. Don't collapse every failure into "wrong password": MACHHUB answers 401 for two different problems, and the message tells them apart:
+
+| Message contains | Meaning | Who fixes it |
+|---|---|---|
+| `Invalid Username or Password` | Wrong credentials | The user |
+| `User not allowed in this domain` | The login is in no group of this domain | An admin adds the login to one of the domain's groups |
+| `Too many failed login attempts` (429) | Locked out for a while | Wait |
 - After login, go back to the page the user originally asked for (pass it as `?redirectTo=`).
 
 ---

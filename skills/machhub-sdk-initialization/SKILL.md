@@ -37,7 +37,20 @@ Where `/_cfg` comes from:
 | Uploaded to MACHHUB as an **SPA** | MACHHUB's generated `server.js`, which replaces any `server.js` you upload |
 | Uploaded to MACHHUB as **SSR** | MACHHUB's proxy wrapper in front of your node server |
 
+The domain comes the same way: from the runtime ID once deployed, and from the Designer's connection in development (its proxy adds `Domain: domains:<id>` to every request). Point the Designer at another runtime or domain and the same code follows it.
+
 So **the app must not ship its own server**. A custom Express/Next/SvelteKit server doesn't serve `/_cfg` and doesn't proxy `/machhub`. The framework skills (`machhub-nextjs-react`, `machhub-sveltekit-svelte`, `machhub-nuxt-vue`, `machhub-angular`) show the client-only setup for each framework.
+
+---
+
+## Never hardcode the domain ID
+
+An app or script doesn't know which domain it runs in, and shouldn't. The domain is wherever it is deployed, or whatever the Designer is connected to, so a literal like `'my_app'` breaks the first time someone connects to a domain with another name. Sign-in then fails with `401 User not allowed in this domain`, which looks like a wrong password.
+
+- ❌ No `application_id` in `Initialize()`, no `APP_ID` constant, no `<domain>.<collection>` prefixes in app code.
+- ✅ Collection calls take the short name (`sdk.collection('deals')`); the server adds the domain.
+- ✅ Record IDs come from the server. Keep the `RecordID` a record came back with, or `RecordIDToString(record.id)` for a URL or a Map key, and never rebuild one from a bare ID (see `machhub-sdk-collections`). Route on the full ID string, not on the part after `:`.
+- ✅ Inside a Process, the domain is `context.domain_id` (see `machhub-sdk-processes`). Raw Process SQL is the one place that spells it out (`` `<domainId>.<collection>` ``), because SQL has no short names.
 
 ---
 
@@ -91,7 +104,7 @@ There is no `natsUrl`.
 
 Use it **only** for code that isn't a browser app served by MACHHUB:
 
-- **Node scripts on a dev machine with the Designer connected**: you don't need an API key. Pass `application_id` only, and the SDK uses the Designer proxy on `localhost:61888`. See `machhub-headless-sdk`.
+- **Node scripts on a dev machine with the Designer connected** don't need config either: call `Initialize()` with no arguments, and the SDK uses the Designer proxy on `localhost:61888`, which supplies credentials and the domain. See `machhub-headless-sdk`.
 - **A service elsewhere** (a CI job, another backend) calling a remote MACHHUB: pass `application_id`, `httpUrl`, `mqttUrl`, and an **API key** created in MACHHUB (Account > API Keys). Keep the key in that service's secret store, never in a frontend bundle.
 
 ```ts
@@ -117,3 +130,4 @@ In Node there is no `localStorage`, so `sdk.auth.login()` keeps its token in mem
 | Works on port hosting, 404s on path hosting | Assets or routes assume `/`. Build with relative assets and set the router base (see the framework skill) |
 | `SDK is not initialized` | Something used the SDK before `Initialize()` resolved. Gate rendering on the init promise |
 | Calls return 401 | Not logged in. Use `sdk.auth.login()` (see `machhub-sdk-authentication`) |
+| Login fails with `User not allowed in this domain` | The login is in no group of the request's domain. Either the user needs adding to a group of the domain the Designer is connected to, or the code passes an `application_id` naming another domain. Remove it |
