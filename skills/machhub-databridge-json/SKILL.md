@@ -1,6 +1,6 @@
 ---
 name: machhub-databridge-json
-description: Generate and validate MACHHUB Data Bridge configuration in JSON for import — MySQL connections, outbound (egress) routes from UNS topics to database tables, inbound (ingress) routes polling tables into UNS topics, column mappings, write modes, watermarks and buffer policy.
+description: Generate and validate MACHHUB Data Bridge configuration in JSON for import — MySQL and PostgreSQL connections, outbound (egress) routes from UNS topics to database tables, inbound (ingress) routes polling tables into UNS topics, column mappings, write modes, watermarks and buffer policy.
 license: MPL-2.0
 ---
 
@@ -30,8 +30,8 @@ the importer enforces, and the mistakes that get files rejected.
 ## Mental Model
 
 ```
-egress  (outbound):  UNS topic  --selector-->  column mappings  -->  buffer  -->  MySQL table
-ingress (inbound):   MySQL table  --watermark poll-->  payload mappings  -->  UNS topic
+egress  (outbound):  UNS topic  --selector-->  column mappings  -->  buffer  -->  database table
+ingress (inbound):   database table  --watermark poll-->  payload mappings  -->  UNS topic
 ```
 
 One bridge owns **one connection** to **one database**, plus any number of
@@ -76,14 +76,14 @@ merely discards.
 |---|---|---|---|
 | `name` | `string` | ✅ | Unique in the environment. Import matches on this to detect a collision. |
 | `description` | `string` | ❌ | Free text. |
-| `driver` | `"mysql"` | ✅ | Only MySQL today. |
+| `driver` | `"mysql"` or `"postgres"` | ✅ | See [PostgreSQL](#postgresql) for what differs. |
 | `host` | `string` | ✅ | Hostname or IP, max 255 chars. |
-| `port` | `integer` | ✅ | 1–65535. MySQL default is `3306`. |
-| `database` | `string` | ✅ | Schema name on the server. |
+| `port` | `integer` | ✅ | 1–65535. Defaults: MySQL `3306`, PostgreSQL `5432`. |
+| `database` | `string` | ✅ | Database name on the server. |
 | `username` | `string` | ➖ | Not enforced by the API, but a bridge without one will not connect. Always set it. |
 | `password` | `string` | ❌ | **Do not write this.** See [Credentials](#credentials). |
 | `tlsMode` | `string` | ❌ | `"false"` (default), `"true"`, `"skip-verify"`, `"preferred"`. |
-| `params` | `object` | ❌ | Extra DSN parameters, e.g. `{"charset": "utf8mb4"}`. String values only. |
+| `params` | `object` | ❌ | Extra connection parameters, e.g. `{"charset": "utf8mb4"}` on MySQL or `{"search_path": "plant"}` on PostgreSQL. String values only. |
 | `bufferMaxAge` | Go duration | ❌ | Default `"72h"`. How long an undelivered record is kept. |
 | `bufferMaxBytes` | `integer` | ❌ | Default `2147483648` (2 GiB). |
 | `egressRoutes` | `EgressRoute[]` | ❌ | MACHHUB → database. |
@@ -101,6 +101,18 @@ importer rejects or discards them: `id`, `status`, `statusMessage`, `on`,
 | `"preferred"` | Use TLS if the server offers it, plaintext otherwise. |
 | `"true"` | Require TLS **and verify the server certificate**. |
 | `"skip-verify"` | Require TLS, do not verify the certificate. Encrypts against passive sniffing but not against a man in the middle — use for self-signed certs only. |
+
+### PostgreSQL
+
+Same format as MySQL. These are the differences:
+
+- **Tables:** `table` resolves through `search_path` (default `public`), or write `schema.table`. Names are case-sensitive, and a table with a dot in its name cannot be used.
+- **Custom `query`:** the watermark placeholder is `$1`, not `?`.
+- **Upsert keys:** only a plain `UNIQUE` or `PRIMARY` key counts. Partial, expression and deferrable indexes do not.
+- **Time zone:** sessions run in UTC. A timestamp watermark on a column with no time zone that holds local time looks like the future, so new rows wait until the offset passes. Prefer `timestamptz`, or set `params.TimeZone`.
+- **`tlsMode`:** `"false"` is `sslmode=disable`, `"preferred"` is `prefer`, `"true"` is `verify-full`, `"skip-verify"` is `require`.
+- **`params`:** `sslmode`, `host`, `hostaddr`, `port`, `user`, `password`, `dbname`, `database`, `service`, `servicefile` and `passfile` are refused. Use the bridge's own fields.
+- **PgBouncer in transaction mode:** set `params.default_query_exec_mode` to `"exec"`. `"simple_protocol"` turns off the bridge's read-only query endpoint.
 
 ### Buffer policy
 
@@ -147,8 +159,8 @@ horizon will be far shorter than `bufferMaxAge` suggests.
 mapped `column` in this route, and (2) be covered by a `UNIQUE` or `PRIMARY` key
 on the target table. Requirement 1 is checked when the bridge is saved.
 Requirement 2 cannot be checked from the JSON alone — and getting it wrong is
-the worst failure mode in the whole feature: without that key `ON DUPLICATE KEY
-UPDATE` never fires, so the at-least-once delivery guarantee degrades silently
+the worst failure mode in the whole feature: without that key the upsert
+never fires, so the at-least-once delivery guarantee degrades silently
 into duplicate rows on every replay. **If you write an upsert route, state in
 your reply which index the target table needs.**
 
@@ -204,7 +216,7 @@ Every interpolated name must be a column the query actually returns.
 When set, `table` is ignored. The query **must**:
 
 1. return `watermarkCol` among its columns, and
-2. accept the watermark as a single `?` bind parameter.
+2. accept the watermark as a single bind parameter: `?` on MySQL, `$1` on PostgreSQL.
 
 ```sql
 SELECT r.id, r.sample_id, r.line_code, r.result_value, r.updated_at
@@ -274,7 +286,7 @@ with one typo creates nothing rather than leaving a half-import. These are the
 checks; satisfy them and the file imports.
 
 1. Every required field above is present and non-empty.
-2. `driver` is `"mysql"`; `port` is 1–65535.
+2. `driver` is `"mysql"` or `"postgres"`; `port` is 1–65535.
 3. Route `id` values are unique within their bridge and their direction.
 4. Every duration parses as a Go duration.
 5. `writeMode` `"upsert"` has `upsertKeys`, and each key is among the mapped
@@ -377,6 +389,7 @@ your reply**:
 | [`templates/egress-minimal.json`](./templates/egress-minimal.json) | Smallest useful bridge: one insert route, four of the five column sources |
 | [`templates/bidirectional.json`](./templates/bidirectional.json) | Egress upsert + ingress with an auto-increment watermark, non-overlapping namespaces |
 | [`templates/multi-bridge.json`](./templates/multi-bridge.json) | The `{"version": 1, "bridges": [...]}` wrapper, plus a timestamp watermark over a custom `query` |
+| [`templates/postgres.json`](./templates/postgres.json) | PostgreSQL: upsert into a `schema.table`, custom `query` with `$1` |
 
 ---
 
@@ -385,7 +398,8 @@ your reply**:
 | Pitfall | Why it bites | Fix |
 |---|---|---|
 | `"bufferMaxAge": "3d"` | `d` is not a Go duration unit. Days do not exist. | `"72h"` |
-| `upsertKeys` not backed by a DB index | `ON DUPLICATE KEY UPDATE` never fires; every replay duplicates rows, silently | Add a `UNIQUE` key on exactly those columns, or use `"insert"` |
+| `upsertKeys` not backed by a DB index | The upsert never fires; every replay duplicates rows, silently | Add a `UNIQUE` key on exactly those columns, or use `"insert"` |
+| `?` in a custom `query` on a `"postgres"` bridge | PostgreSQL rejects it, and `?` can also be a JSONB operator | Use `$1` |
 | Including `watermark` in an ingress route | The new environment skips every row below it, permanently | Omit it |
 | Egress selector overlapping an ingress topic | Infinite loop until the buffer fills | Namespace ingress topics under their own prefix |
 | `"timestamp"` watermark with no `safetyLag` | Rows committed out of timestamp order are skipped | Set `safetyLag` above the longest write transaction |

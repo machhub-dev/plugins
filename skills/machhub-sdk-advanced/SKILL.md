@@ -92,6 +92,7 @@ const { columns, rows, truncated } = await sdk.bridge('databridges:erp').query<{
 ```
 
 - The ID is the bridge's record ID (`databridges:<name>`).
+- Placeholders follow the bridge's database: `?` on MySQL, `$1`, `$2` on PostgreSQL.
 - INSERT, UPDATE, DELETE and DDL are rejected by the database's read-only transaction. Egress routes are how data gets written.
 - Errors throw `BridgeQueryError`. `err.transient === true` (HTTP 503) means a retry later may succeed.
 
