@@ -220,6 +220,7 @@ my-app/
 | `_collections/` | Collections | the `name` **inside** the file | `machhub-collection-json` |
 | `_processes/`   | Processes   | the `name` inside the file **plus** its folder under `_processes/` | `machhub-sdk-processes` |
 | `_namespaces/`  | Namespaces  | the root `name` inside the file | `machhub-namespace-json` |
+| `_explorer.json` | Explorer (MACHHUB 2) | a fixed filename; items by `type` and `name` | `machhub-explorer-json` |
 | `_permissions/` | Permissions | fixed filenames | `machhub-permission-json`, `machhub-groups-json` |
 | `_nodered/`     | NODE-RED Flows | n/a — the whole folder is uploaded | — |
 | `build/`        | Build       | n/a — the whole folder is uploaded | — |
@@ -276,6 +277,7 @@ by the Designer extension — see [Designer Workspace Layout](#-designer-workspa
 | -------------------------- | --------------------------------------- | ----------------------------------------------------------------- |
 | `machhub-collection-json`  | `_collections/<name>.json`              | Collection schemas with relations and indexes                     |
 | `machhub-namespace-json`   | `_namespaces/<name>.json`               | UNS topic trees (folders, tags) and historian settings            |
+| `machhub-explorer-json`    | `_explorer.json`                        | A Workspace's folders and where items are filed (MACHHUB 2)      |
 | `machhub-permission-json`  | `_permissions/permissions.json`         | The permission catalogue — features, actions and scopes           |
 | `machhub-groups-json`      | `_permissions/groups.json`              | Group (role) assignments over that catalogue                      |
 | `machhub-databridge-json`  | *(not synced — web UI only)*            | Data Bridge — MySQL routes, mappings, watermarks                  |
@@ -338,6 +340,7 @@ plugins/
 └── skills/
     ├── machhub-collection-json/    # Collection JSON schema
     ├── machhub-namespace-json/     # Namespace JSON schema (topic tree + historian)
+    ├── machhub-explorer-json/      # Explorer document (folders + item placement)
     ├── machhub-permission-json/    # Permission JSON schema
     ├── machhub-groups-json/        # Group assignment JSON schema
     ├── machhub-databridge-json/    # Data Bridge JSON schema (3 templates)
