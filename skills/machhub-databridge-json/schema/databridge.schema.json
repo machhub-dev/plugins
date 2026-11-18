@@ -45,8 +45,8 @@
         "description": { "type": "string" },
         "driver": {
           "type": "string",
-          "enum": ["mysql", "postgres"],
-          "description": "The database engine. Both use this same format; custom queries differ, see `query`."
+          "enum": ["mysql", "postgres", "mssql"],
+          "description": "The database engine. All use this same format; custom queries differ, see `query`."
         },
         "host": { "type": "string", "minLength": 1, "maxLength": 255 },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
@@ -161,7 +161,7 @@
         },
         "query": {
           "type": "string",
-          "description": "Custom SELECT, used instead of `table`. It must expose watermarkCol and take the watermark as a single bind parameter: `?` on MySQL, `$1` on PostgreSQL."
+          "description": "Custom SELECT, used instead of `table`. It must expose watermarkCol and take the watermark as a single bind parameter: `?` on MySQL, `$1` on PostgreSQL, `@p1` on SQL Server."
         },
         "watermarkCol": {
           "type": "string",
