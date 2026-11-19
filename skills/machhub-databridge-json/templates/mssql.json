@@ -1,0 +1,39 @@
+{
+  "name": "Plant A MES (SQL Server)",
+  "description": "Keeps the latest tag values in a schema-qualified table and publishes new work orders to the UNS",
+  "driver": "mssql",
+  "host": "10.20.0.15",
+  "port": 1433,
+  "database": "mes",
+  "username": "machhub",
+  "tlsMode": "skip-verify",
+  "bufferMaxAge": "72h",
+  "egressRoutes": [
+    {
+      "id": "3b7e8a10-6c1d-4f2a-9b3e-7d5c1a2f4e60",
+      "name": "Latest tag values",
+      "enabled": true,
+      "selector": "plantA/+/sensors/#",
+      "table": "plant.tag_latest",
+      "writeMode": "upsert",
+      "upsertKeys": ["topic"],
+      "columns": [
+        { "column": "topic", "source": "topic", "type": "string" },
+        { "column": "reading_value", "source": "value", "type": "float" },
+        { "column": "updated_at", "source": "timestamp", "type": "datetime" }
+      ]
+    }
+  ],
+  "ingressRoutes": [
+    {
+      "id": "c4d9f2b7-1e3a-4b8c-a6d5-2f7e9b0c1d34",
+      "name": "Ready work orders",
+      "enabled": true,
+      "query": "SELECT order_id, machine, sku, qty FROM plant.work_orders WHERE status = 'READY' AND order_id > @p1 ORDER BY order_id ASC LIMIT 500",
+      "watermarkCol": "order_id",
+      "watermarkKind": "autoincrement",
+      "pollInterval": "5s",
+      "topicTemplate": "erp/work_orders/{{.machine}}"
+    }
+  ]
+}

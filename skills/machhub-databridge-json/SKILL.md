@@ -1,6 +1,6 @@
 ---
 name: machhub-databridge-json
-description: Generate and validate MACHHUB Data Bridge configuration in JSON for import — MySQL and PostgreSQL connections, outbound (egress) routes from UNS topics to database tables, inbound (ingress) routes polling tables into UNS topics, column mappings, write modes, watermarks and buffer policy.
+description: Generate and validate MACHHUB Data Bridge configuration in JSON for import — MySQL, PostgreSQL and SQL Server connections, outbound (egress) routes from UNS topics to database tables, inbound (ingress) routes polling tables into UNS topics, column mappings, write modes, watermarks and buffer policy.
 license: MPL-2.0
 ---
 
@@ -76,13 +76,13 @@ merely discards.
 |---|---|---|---|
 | `name` | `string` | ✅ | Unique in the environment. Import matches on this to detect a collision. |
 | `description` | `string` | ❌ | Free text. |
-| `driver` | `"mysql"` or `"postgres"` | ✅ | See [PostgreSQL](#postgresql) for what differs. |
+| `driver` | `"mysql"`, `"postgres"` or `"mssql"` | ✅ | See [PostgreSQL](#postgresql) and [SQL Server](#sql-server) for what differs. |
 | `host` | `string` | ✅ | Hostname or IP, max 255 chars. |
-| `port` | `integer` | ✅ | 1–65535. Defaults: MySQL `3306`, PostgreSQL `5432`. |
+| `port` | `integer` | ✅ | 1–65535. Defaults: MySQL `3306`, PostgreSQL `5432`, SQL Server `1433`. |
 | `database` | `string` | ✅ | Database name on the server. |
 | `username` | `string` | ➖ | Not enforced by the API, but a bridge without one will not connect. Always set it. |
 | `password` | `string` | ❌ | **Do not write this.** See [Credentials](#credentials). |
-| `tlsMode` | `string` | ❌ | `"false"` (default), `"true"`, `"skip-verify"`, `"preferred"`. |
+| `tlsMode` | `string` | ❌ | `"false"` (default), `"true"`, `"skip-verify"`, `"preferred"` (not on SQL Server). |
 | `params` | `object` | ❌ | Extra connection parameters, e.g. `{"charset": "utf8mb4"}` on MySQL or `{"search_path": "plant"}` on PostgreSQL. String values only. |
 | `bufferMaxAge` | Go duration | ❌ | Default `"72h"`. How long an undelivered record is kept. |
 | `bufferMaxBytes` | `integer` | ❌ | Default `2147483648` (2 GiB). |
@@ -113,6 +113,16 @@ Same format as MySQL. These are the differences:
 - **`tlsMode`:** `"false"` is `sslmode=disable`, `"preferred"` is `prefer`, `"true"` is `verify-full`, `"skip-verify"` is `require`.
 - **`params`:** `sslmode`, `host`, `hostaddr`, `port`, `user`, `password`, `dbname`, `database`, `service`, `servicefile` and `passfile` are refused. Use the bridge's own fields.
 - **PgBouncer in transaction mode:** set `params.default_query_exec_mode` to `"exec"`. `"simple_protocol"` turns off the bridge's read-only query endpoint.
+
+### SQL Server
+
+Same format as MySQL. These are the differences:
+
+- **Driver:** `"mssql"`, port `1433`.
+- **Tables:** `table` resolves through the login's default schema (usually `dbo`), or write `schema.table`. Names are quoted with brackets, so a name may hold spaces; a table with a dot in its name cannot be used.
+- **Custom `query`:** the watermark placeholder is `@p1`, not `?`. `@p10` and `@p1x` do not count.
+- **Auto-increment:** an `IDENTITY` column. Prefer it as the watermark; a `DATETIME2` column suits `"timestamp"`.
+- **`tlsMode`:** `"false"` is no encryption, `"true"` is encrypted with the certificate verified, `"skip-verify"` is encrypted and trusts the server certificate. `"preferred"` is not offered.
 
 ### Buffer policy
 
@@ -216,7 +226,7 @@ Every interpolated name must be a column the query actually returns.
 When set, `table` is ignored. The query **must**:
 
 1. return `watermarkCol` among its columns, and
-2. accept the watermark as a single bind parameter: `?` on MySQL, `$1` on PostgreSQL.
+2. accept the watermark as a single bind parameter: `?` on MySQL, `$1` on PostgreSQL, `@p1` on SQL Server.
 
 ```sql
 SELECT r.id, r.sample_id, r.line_code, r.result_value, r.updated_at
@@ -286,7 +296,7 @@ with one typo creates nothing rather than leaving a half-import. These are the
 checks; satisfy them and the file imports.
 
 1. Every required field above is present and non-empty.
-2. `driver` is `"mysql"` or `"postgres"`; `port` is 1–65535.
+2. `driver` is `"mysql"`, `"postgres"` or `"mssql"`; `port` is 1–65535.
 3. Route `id` values are unique within their bridge and their direction.
 4. Every duration parses as a Go duration.
 5. `writeMode` `"upsert"` has `upsertKeys`, and each key is among the mapped
@@ -390,6 +400,7 @@ your reply**:
 | [`templates/bidirectional.json`](./templates/bidirectional.json) | Egress upsert + ingress with an auto-increment watermark, non-overlapping namespaces |
 | [`templates/multi-bridge.json`](./templates/multi-bridge.json) | The `{"version": 1, "bridges": [...]}` wrapper, plus a timestamp watermark over a custom `query` |
 | [`templates/postgres.json`](./templates/postgres.json) | PostgreSQL: upsert into a `schema.table`, custom `query` with `$1` |
+| [`templates/mssql.json`](./templates/mssql.json) | SQL Server: upsert into a `schema.table`, custom `query` with `@p1` |
 
 ---
 
@@ -400,6 +411,7 @@ your reply**:
 | `"bufferMaxAge": "3d"` | `d` is not a Go duration unit. Days do not exist. | `"72h"` |
 | `upsertKeys` not backed by a DB index | The upsert never fires; every replay duplicates rows, silently | Add a `UNIQUE` key on exactly those columns, or use `"insert"` |
 | `?` in a custom `query` on a `"postgres"` bridge | PostgreSQL rejects it, and `?` can also be a JSONB operator | Use `$1` |
+| `?` or `$1` in a custom `query` on an `"mssql"` bridge | SQL Server does not bind them | Use `@p1` |
 | Including `watermark` in an ingress route | The new environment skips every row below it, permanently | Omit it |
 | Egress selector overlapping an ingress topic | Infinite loop until the buffer fills | Namespace ingress topics under their own prefix |
 | `"timestamp"` watermark with no `safetyLag` | Rows committed out of timestamp order are skipped | Set `safetyLag` above the longest write transaction |
